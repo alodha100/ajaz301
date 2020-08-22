@@ -1,0 +1,105 @@
+az group create --name myResourceGroupAutomate --location eastus
+
+=======================================================
+
+keyvault_name=mykeyvaultaj
+az keyvault create \
+    --resource-group myResourceGroupAutomate \
+    --name $keyvault_name \
+    --enabled-for-deployment
+========================================================	
+	
+az keyvault certificate create \
+    --vault-name $keyvault_name \
+    --name mycert \
+    --policy "$(az keyvault certificate get-default-policy --output json)"
+
+========================================================
+
+secret=$(az keyvault secret list-versions \
+          --vault-name $keyvault_name \
+          --name mycert \
+          --query "[?attributes.enabled].id" --output tsv)
+vm_secret=$(az vm secret format --secret "$secret" --output json)	
+
+==========================================================
+
+#cloud-config
+package_upgrade: true
+packages:
+  - nginx
+  - nodejs
+  - npm
+write_files:
+  - owner: www-data:www-data
+    path: /etc/nginx/sites-available/default
+    content: |
+      server {
+        listen 80;
+        listen 443 ssl;
+        ssl_certificate /etc/nginx/ssl/mycert.cert;
+        ssl_certificate_key /etc/nginx/ssl/mycert.prv;
+        location / {
+          proxy_pass http://localhost:3000;
+          proxy_http_version 1.1;
+          proxy_set_header Upgrade $http_upgrade;
+          proxy_set_header Connection keep-alive;
+          proxy_set_header Host $host;
+          proxy_cache_bypass $http_upgrade;
+        }
+      }
+  - owner: azureuser:azureuser
+    path: /home/azureuser/myapp/index.js
+    content: |
+      var express = require('express')
+      var app = express()
+      var os = require('os');
+      app.get('/', function (req, res) {
+        res.send('Hello World from host ' + os.hostname() + '!')
+      })
+      app.listen(3000, function () {
+        console.log('Hello world app listening on port 3000!')
+      })
+runcmd:
+  - secretsname=$(find /var/lib/waagent/ -name "*.prv" | cut -c -57)
+  - mkdir /etc/nginx/ssl
+  - cp $secretsname.crt /etc/nginx/ssl/mycert.cert
+  - cp $secretsname.prv /etc/nginx/ssl/mycert.prv
+  - service nginx restart
+  - cd "/home/azureuser/myapp"
+  - npm init
+  - npm install express -y
+  - nodejs index.js
+
+==================================================================
+
+az vm create \
+    --resource-group myResourceGroupAutomate \
+    --name myVMWithCerts \
+    --image UbuntuLTS \
+    --admin-username azureuser \
+    --generate-ssh-keys \
+    --custom-data cloud-init-secured.txt \
+    --secrets "$vm_secret"
+
+======================================================================
+
+az vm open-port \
+    --resource-group myResourceGroupAutomate \
+    --name myVMWithCerts \
+    --port 443
+
+======================================================================
+
+keyvault_name=mykeyvaultaj
+   13  az keyvault create     --resource-group myResourceGroupAutomate     --name $keyvault_name     --enabled-for-deployment
+   14  az keyvault certificate create     --vault-name $keyvault_name     --name mycert     --policy "$(az keyvault certificate get-default-policy --output json)"
+   15  secret=$(az keyvault secret list-versions \
+   16            --vault-name $keyvault_name \
+   17            --name mycert \
+   18            --query "[?attributes.enabled].id" --output tsv)
+   19  vm_secret=$(az vm secret format --secret "$secret" --output json)
+   20  vi cloud-init-secured.txt
+   21  az vm create     --resource-group myResourceGroupAutomate     --name myVMWithCerts     --image UbuntuLTS     --admin-username azureuser     --generate-ssh-keys     --custom-data cloud-init-secured.txt     --secrets "$vm_secret"
+
+
