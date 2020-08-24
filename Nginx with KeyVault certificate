@@ -91,15 +91,3 @@ az vm open-port \
 
 ======================================================================
 
-keyvault_name=mykeyvaultaj
-   13  az keyvault create     --resource-group myResourceGroupAutomate     --name $keyvault_name     --enabled-for-deployment
-   14  az keyvault certificate create     --vault-name $keyvault_name     --name mycert     --policy "$(az keyvault certificate get-default-policy --output json)"
-   15  secret=$(az keyvault secret list-versions \
-   16            --vault-name $keyvault_name \
-   17            --name mycert \
-   18            --query "[?attributes.enabled].id" --output tsv)
-   19  vm_secret=$(az vm secret format --secret "$secret" --output json)
-   20  vi cloud-init-secured.txt
-   21  az vm create     --resource-group myResourceGroupAutomate     --name myVMWithCerts     --image UbuntuLTS     --admin-username azureuser     --generate-ssh-keys     --custom-data cloud-init-secured.txt     --secrets "$vm_secret"
-
-
